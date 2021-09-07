@@ -1,0 +1,159 @@
+---
+title: "Итоговый проект для Google Data Analytics Profefessional Certificate"
+author: Сергей Векленко
+date: 07.09.2021
+output: rmarkdown::github_document
+---
+
+## Устанавливаем и загружаем базовые пакеты и библиотеки.
+
+
+```{r}
+install.packages('tidyverse',repos = "http://cran.us.r-project.org")
+library(tidyverse)
+install.packages('janitor',repos = "http://cran.us.r-project.org")
+library('janitor')
+install.packages('skimr',repos = "http://cran.us.r-project.org")
+library('skimr')
+install.packages('here',repos = "http://cran.us.r-project.org")
+library('here')
+install.packages('dplyr',repos = "http://cran.us.r-project.org")
+library('dplyr')
+install.packages('lubridate',repos = "http://cran.us.r-project.org")
+library(lubridate)
+install.packages('ggplot2',repos = "http://cran.us.r-project.org")
+library(ggplot2)
+```
+
+
+## Подключаем csv файлы.
+
+Мы создаем дата фреймы для хранения наших данных и более удобного использования в дальнейшем. 
+
+```{r}
+dailyActivity <- read_csv("dailyActivity_merged.csv")
+dailyCalories <- read_csv("dailyCalories_merged.csv")
+dailyIntensities <- read_csv("dailyIntensities_merged.csv")
+dailySteps <- read_csv("dailySteps_merged.csv")
+heartrate_seconds <- read_csv("heartrate_seconds_merged.csv")
+hourlyCalories <- read_csv("hourlyCalories_merged.csv")
+hourlyIntensities <- read_csv("hourlyIntensities_merged.csv")
+hourlySteps <- read_csv("hourlySteps_merged.csv")
+minuteCaloriesNarrow <- read_csv("minuteCaloriesNarrow_merged.csv")
+minuteCaloriesWide <- read_csv("minuteCaloriesWide_merged.csv")
+minuteMETsNarrow <- read_csv("minuteMETsNarrow_merged.csv")
+minuteSleep <- read_csv("minuteSleep_merged.csv")
+minuteStepsNarrow <- read_csv("minuteStepsNarrow_merged.csv")
+minuteStepsWide <- read_csv("minuteStepsWide_merged.csv")
+sleepDay <- read_csv("sleepDay_merged.csv")
+weightLogInfo <- read_csv("weightLogInfo_merged.csv")
+
+```
+
+## Подготовка данных.
+
+Обратим внимание на дата фреймы с которыми мы планируем работать.
+```{r}
+dailyActivity_merged_2 <- clean_names(dailyActivity)
+sleepDay_merged_2 <- clean_names(sleepDay)
+weightLogInfo_merged_2 <- clean_names(weightLogInfo)
+
+View(dailyActivity_merged_2)
+View(sleepDay_merged_2)
+View(weightLogInfo_merged_2)
+```
+
+#### Работа с датами.
+Дело в том, что dailyActivity в mdy формате даты, а weightLog и sleepDay в mdy_hms. И наша задача решить этот вопрос
+
+```{r}
+dailyActivity_merged_2$activity_date <- as.Date(dailyActivity_merged_2$activity_date, "%m/%d/%Y")
+weightLogInfo_merged_2$date <- parse_date_time(weightLogInfo_merged_2$date, orders = 'mdy HMS')
+weightLogInfo_merged_2$date <- as.Date(weightLogInfo_merged_2$date, "%m/%d/%y %h:%m:%s")
+sleepDay_merged_2$sleep_day <- parse_date_time(sleepDay_merged_2$sleep_day, orders = 'mdy HMS')
+sleepDay_merged_2$sleep_day <- as.Date(sleepDay_merged_2$sleep_day, "%m/%d/%y %h:%m:%s")
+View(sleepDay_merged_2)
+View(weightLogInfo_merged_2)
+View(dailyActivity_merged_2)
+
+str(sleepDay_merged_2)
+str(weightLogInfo_merged_2)
+str(dailyActivity_merged_2)
+```
+
+#### Объединение дата сетов.
+
+В данном случае при использовании merge мы пользуемся left join. NA все равно будут появляться, но они будут заменены 0.
+```{r}
+daily_activity_sleep <- merge(x= dailyActivity_merged_2, y= sleepDay_merged_2,
+                              by.x = c("id", "activity_date"), by.y = c("id", "sleep_day"), all.x = TRUE)
+daily_activity_sleep [is.na(daily_activity_sleep)] <- 0
+View(daily_activity_sleep)
+
+```
+
+## Анализ данных.
+
+#### Создадим категории.
+  1. Сон <6ч, 6-8ч, >8ч
+  2. Калории <1500, 1500-2500, >2500
+  3. Пройденное расстояниие <5км, 5-10км, >10км
+
+```{r}
+daily_activity_sleep <- daily_activity_sleep %>% 
+  mutate(sleep_categories = case_when(
+    total_minutes_asleep >360 & total_minutes_asleep <= 480 ~ "6h-8h",
+    total_minutes_asleep > 480 ~ "> 8h",
+    TRUE ~ "< 6h"
+  )) %>% 
+  mutate(calorie_categories = case_when(
+    calories > 1500 & calories <= 2500 ~ "1.5k-2.5k",
+    calories > 2500 ~ "> 2.5k",
+    TRUE ~ "< 1.5k"
+  )) %>% 
+  mutate(distance_categories = case_when(
+    total_distance > 5 & total_distance <= 10 ~ "5km-10km",
+    total_distance > 10 ~ "> 10km",
+    TRUE ~ "<5km"
+  ))
+
+View(daily_activity_sleep)
+```
+
+#### Создадим визуализации.
+
+Для начала рассмотрим зависимость сожженных калорий от пройденного расстояния.
+
+```{r}
+ggplot(data= daily_activity_sleep) +
+  geom_boxplot(mapping= aes(x=distance_categories, y= calories, fill= distance_categories))
+```
+
+Далее рассмотрим зависимость между сном и сожженными калориями.
+
+```{r}
+ggplot(data= daily_activity_sleep) +
+  geom_boxplot(mapping= aes(x=sleep_categories, y= calories, fill= sleep_categories))+facet_wrap("distance_categories")
+```
+
+#### Итоги анализа.
+
+Корреляция между расстоянием и калориями.
+ 
+ 1. На графике отчетливо видно прямую зависимость сожженных калорий от пройденной дистанции, больше прошел - больше сжег.
+ 2. В среднем люди, которые проходят менее  5км сжигают около 1800 калорий.
+ 3. В среднем люди, которые проходят 5-10км сжигают около 2400 калорий.
+ 4. В среднем люди, которые проходят более 10км сжигают около 3100 калорий.
+ 
+Корреляция между сном и затратами каллорий.
+  
+  1. В серднем люди которые спят менее 6 и более 8 часов в день сжигают меньше калорий, чем те, кто спят по 6-8 часов при сравнительно одинаковой нагрузке.
+  
+## Бизнес рекомендации.
+
+Основываясь на выводах приведенных выше привожу свои рекомендации для компании Bellabeat:
+  1. В исследовании очевидна корреляция между сном и сжиганием калорий. Можно приводить в пример важность отслеживания качества и продолжительности сна для снижения веса.
+  2. Так же может быть разработана и использована маркетинговая стратегия для донесения пользователям информации о важности хорошего сна, как его достичь и как Bellabeat и продукция компании может в этом помочь.
+  3. Одно из главных достоинств использования умных устройст - мотивировать пользователей вести более здоровый образ жизни. Можно разработать функцию сравнения сверстников для мотивации пользователей вести более здоровый образ жизни.
+  4. Так как данные использованные в данном исследовании не являются достоверными в полной мере - все предложения, приведенные выше требуют дополнительного рассмотрения.
+
